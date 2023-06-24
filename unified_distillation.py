@@ -173,7 +173,7 @@ class VolumetricNetwork(LightningModule):
 
             # Vol Render output image for logging
             def render_ref_pose_images(model, inp_img):
-                c_latent = model.encoder(inp_img.unsqueeze(0))
+                c_latent, mu, var = model.encoder(inp_img.unsqueeze(0))
                 render_kwargs = {
                     "network_query_fn": network_query_fn_validation,
                     "N_samples": 100,
@@ -307,7 +307,7 @@ class VolumetricNetwork(LightningModule):
 
                 temp_model = self.distillation_ckpts[model_id.item()]
                 temp_model = temp_model.to(self.device)
-                temp_c_latent = temp_model.model.encoder(inp_imgs[i].unsqueeze(0))
+                temp_c_latent, mu, var = temp_model.model.encoder(inp_imgs[i].unsqueeze(0))
 
                 outputs.append(
                     network_query_fn_validation(
@@ -329,16 +329,16 @@ class VolumetricNetwork(LightningModule):
             inp_imgs = self._process_encoder_images(inp_imgs)
 
         self.model.to(self.device)
-        c_latent = self.model.encoder(inp_imgs)
+        c_latent, mu ,var = self.model.encoder(inp_imgs)
         preds_raw = network_query_fn_train(query_points, c_latent, self.model.decoder)
 
         colors = preds_raw[..., :3]
         colors_labels = labels_raw[..., :3]
-        loss_rgb = torch.nn.functional.mse_loss(colors, colors_labels)
+        loss_rgb = self.mode.loss_function(colors, colors_labels, mu , var)
 
         density = torch.nn.functional.relu(preds_raw[..., 3])
         density_labels = torch.nn.functional.relu(labels_raw[..., 3])
-        loss_density = torch.nn.functional.mse_loss(density, density_labels)
+        loss_density = self.mode.loss_function(density, density_labels, mu, var)
 
         loss = (loss_density + loss_rgb) / 2.0
 
@@ -373,7 +373,7 @@ class VolumetricNetwork(LightningModule):
 
                 temp_model = self.distillation_ckpts[model_id.item()]
                 temp_model = temp_model.to(self.device)
-                temp_c_latent = temp_model.model.encoder(inp_imgs[i].unsqueeze(0))
+                temp_c_latent, mu, var = temp_model.model.encoder(inp_imgs[i].unsqueeze(0))
                 temp_c_latent = temp_c_latent.repeat(self.ray_num, 1)
 
                 ray_outs = render_rays(
@@ -408,7 +408,7 @@ class VolumetricNetwork(LightningModule):
             inp_imgs = self._process_encoder_images(inp_imgs)
 
         self.model.to(self.device)
-        c_latent = self.model.encoder(inp_imgs)  # [N, c_dim]
+        c_latent, mu, var = self.model.encoder(inp_imgs)  # [N, c_dim]
         # For instance, C = [[1,2],[3,4]] and num_rays = 2
         # below lines return C = [[1,2],[1,2],[3,4],[3,4]]
         c_latent = (
@@ -426,17 +426,19 @@ class VolumetricNetwork(LightningModule):
         mask_ray_outs = ray_outs["acc_map"].to(self.device)  # [N*num_rays] 1-d
 
         loss = []
-        loss_mask = torch.nn.functional.mse_loss(
+        loss_mask = self.model.loss_function(
             mask_ray_labels,
             mask_ray_outs,  # reduction="none"
+            mu, var
         )  # [N*num_rays] 1-d
         loss.append(loss_mask)
 
         if self.cfg.render.rgb:
             rgb_ray_outs = ray_outs["rgb_map"].to(self.device)
-            loss_rgb = torch.nn.functional.mse_loss(
+            loss_rgb = self.model.loss_function(
                 rgb_ray_labels,
                 rgb_ray_outs,
+                mu, var
             )
             loss.append(loss_rgb)
 

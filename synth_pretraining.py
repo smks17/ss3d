@@ -42,7 +42,7 @@ class VolumetricNetwork(LightningModule):
         super().__init__()
         self.cfg = cfg
 
-        # make the e2e (encoder + decoder) model.
+        # make the variational e2e (encoder + decoder) model.
         self.model = get_model(cfg.model)
 
         # Save hyperparameters
@@ -91,7 +91,7 @@ class VolumetricNetwork(LightningModule):
                 rays,
             ) = self.extract_batch_input(batch)
 
-            c_latent = self.model.encoder(inp_imgs)
+            c_latent, mu, var = self.model.encoder(inp_imgs)
             c_latent = (
                 c_latent.unsqueeze(1)
                 .repeat(1, self.ray_num, 1)
@@ -107,9 +107,10 @@ class VolumetricNetwork(LightningModule):
             )
             mask_ray_outs = ray_outs["acc_map"].to(self.device)
 
-            loss = torch.nn.functional.mse_loss(
+            loss = self.model.loss_function(
                 mask_ray_labels,
                 mask_ray_outs,  # reduction="none"
+                mu, var
             )
 
             # Vol Render output image for logging
@@ -198,7 +199,7 @@ class VolumetricNetwork(LightningModule):
             rays,
         ) = self.extract_batch_input(batch)
 
-        c_latent = self.model.encoder(inp_imgs)  # [N, c_dim]
+        c_latent, mu, var = self.model.encoder(inp_imgs)  # [N, c_dim]
         # For instance, C = [[1,2],[3,4]] and num_rays = 2
         # below lines return C = [[1,2],[1,2],[3,4],[3,4]]
         c_latent = (
@@ -216,17 +217,19 @@ class VolumetricNetwork(LightningModule):
         mask_ray_outs = ray_outs["acc_map"].to(self.device)  # [N*num_rays] 1-d
 
         loss = []
-        loss_mask = torch.nn.functional.mse_loss(
+        loss_mask = self.model.loss_function(
             mask_ray_labels,
             mask_ray_outs,  # reduction="none"
+            mu, var
         )  # [N*num_rays] 1-d
         loss.append(loss_mask)
 
         if self.cfg.render.rgb:
             rgb_ray_outs = ray_outs["rgb_map"].to(self.device)
-            loss_rgb = torch.nn.functional.mse_loss(
+            loss_rgb = self.model.loss_function(
                 rgb_ray_labels,
                 rgb_ray_outs,
+                mu, var
             )
             loss.append(loss_rgb)
 

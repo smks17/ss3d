@@ -181,9 +181,36 @@ class Resnet34ResFC(nn.Module):
         out = self.fc(net)
         return out
 
+class VAE_Resnet34ResFC(Resnet34ResFC):
+    def __init__(self,
+                 c_dim,
+                 normalize=True,
+                 use_linear=True,
+                 linear_dim=512,
+                 var_dim = 2560):
+        super(VAE_Resnet34ResFC, self).__init__(c_dim, normalize, use_linear, linear_dim)
+        self.fc_mu = nn.Linear(c_dim, var_dim)
+        self.fc_var = nn.Linear(c_dim, var_dim)
 
-class VNet(nn.Module):
-    """Volumetric Network class.
+    def compute_Z(self, mu, var):
+        # parametrize
+        std = torch.exp(var * 0.5)
+        eps = torch.randn_like(std)
+        return eps * std + mu
+
+    def sample(self, e_out):
+        mu = self.fc_mu(e_out)
+        var = self.fc_var(e_out)
+        z = self.compute_Z(mu, var)
+        return (z, mu, var)
+
+    def forward(self, inputs):
+        out = self.encoder(inputs)
+        z, mu, var = self.sample(out)
+        return (self.decoder(z), mu, var)
+
+class VNet2(nn.Module):
+    """Volumetric Network class. that is a Variation AutoEncoder
 
     Args:
         decoder (nn.Module): decoder network
@@ -199,7 +226,7 @@ class VNet(nn.Module):
         encoder=Resnet34ResFC(c_dim=2560),
         device="cuda",
     ):
-        super(VNet, self).__init__()
+        super(VNet2, self).__init__()
 
         self.decoder = decoder
         self.encoder = encoder
@@ -207,6 +234,12 @@ class VNet(nn.Module):
 
     def forward(self):
         pass
+
+    @staticmethod
+    def loss_function(pred, act, mu, var, kl_weight = 0.01):
+        MSE = nn.functional.mse_loss(pred, act, reduction='sum')
+        KLD = 0.5 * torch.sum(var.exp() - var - 1 + mu.pow(2))
+        return (MSE + kl_weight * KLD) / 1000.
 
     def to(self, device):
         """Puts the model to the device.
@@ -221,4 +254,4 @@ class VNet(nn.Module):
 
 def get_model(model_cfg):
     # TODO: Add more functionality to this method to enable building model from cfgs.
-    return VNet()
+    return VNet2()

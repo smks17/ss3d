@@ -29,3 +29,7 @@ ipyNb
 #*.ipynb
 volumetric_networks.egg-info
 job_outputs/*
+
+ModelNet10/
+.vscode/
+*.zip

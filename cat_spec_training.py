@@ -174,6 +174,8 @@ class CameraHandler:
         decoder,
         c_latent,
         device,
+        loss_function,
+        mu, var,
         shape_regularizer=None,
     ):
 
@@ -198,8 +200,11 @@ class CameraHandler:
         )
         mask_ray_outs = ray_outs["acc_map"].to(device)  # [N*num_rays] 1-d
 
-        loss_mask = torch.nn.functional.mse_loss(
-            mask_ray_labels, mask_ray_outs, reduction="none"
+        # loss_mask = torch.nn.functional.mse_loss(
+        #     mask_ray_labels, mask_ray_outs, reduction="none"
+        # )  # [N*num_rays] 1-d
+        loss_mask = loss_function(
+            mask_ray_labels, mask_ray_outs, mu, var
         )  # [N*num_rays] 1-d
         loss_mask = loss_mask.reshape(
             len(frame_list), self.cfg.render.cam_num, self.cfg.render.ray_num_per_cam
@@ -230,7 +235,7 @@ class CameraHandler:
             reg_outs = reg_outs.squeeze(-1)
             instance_outs = torch.sigmoid(ray_outs["raw"][..., 3])
 
-            reg_loss = torch.nn.functional.mse_loss(reg_outs, instance_outs)
+            reg_loss = loss_function(reg_outs, instance_outs, mu, var)
             return loss, reg_loss
         else:
             return loss
@@ -341,7 +346,7 @@ class CameraHandler:
                 cameras,
                 decoder,
                 c_latent,
-                device,
+                device
             )
         weights_softmax = torch.nn.functional.softmax(camera_weights)
         loss = torch.mul(weights_softmax, loss)
@@ -369,7 +374,7 @@ class CameraHandler:
         return cameras, weights_softmax, inds
 
     def optimize_cameras(
-        self, batch_dict, c_latent_from_encoder, decoder, device, shape_reg=None
+        self, batch_dict, c_latent_from_encoder, decoder, device, loss_function, shape_reg=None
     ):
         # frame_list: (n,)
         # c_latent: (n, c_dim)
@@ -404,7 +409,7 @@ class CameraHandler:
             cameras[..., 2] = dists
 
             loss = self._compute_camera_loss(
-                frame_list, rgb_imgs, mask_imgs, cameras, decoder, c_latent, device
+                frame_list, rgb_imgs, mask_imgs, cameras, decoder, c_latent, device, loss_function. mu, var
             )
             loss_camera = loss.mean()
 
@@ -547,7 +552,7 @@ class VolumetricNetwork(LightningModule):
             inp_imgs = batch["rgb_img"]
             inp_imgs = inp_imgs.to(self.device)
 
-            c_latent = self.model.encoder(inp_imgs)
+            c_latent, mu, var = self.model.encoder(inp_imgs)
 
             loss = torch.tensor(float(0.5)).type_as(c_latent)
 
@@ -669,9 +674,10 @@ class VolumetricNetwork(LightningModule):
         """
 
         inp_imgs = batch["rgb_img"].to(self.device)
-        c_latent = self.model.encoder(inp_imgs)  # [N, c_dim]
+        c_latent, mu, var = self.model.encoder(inp_imgs)  # [N, c_dim]
         out_dict = self.camera_handler.optimize_cameras(
-            batch, c_latent, self.model.decoder, self.device, self.shape_reg
+            batch, c_latent, self.model.decoder, self.device,
+            self.model.loss_function, mu, var, self.shape_reg
         )
 
         self.log(
