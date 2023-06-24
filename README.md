@@ -1,3 +1,7 @@
+# NOTE (For the forked)
+This fork changes the model to Variational Autoencoder to test improvement.
+
+Also uses ModelNet datasets because of not available to access ShapeNet.
 # [Pre-train, Self-train, Distill: A simple recipe for Supersizing 3D Reconstruction](https://shubhtuls.github.io/ss3d/)
 Kalyan Vasudev Alwala, Abhinav Gupta, Shubham Tulsiani
 
