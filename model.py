@@ -199,15 +199,16 @@ class VAE_Resnet34ResFC(Resnet34ResFC):
         return eps * std + mu
 
     def sample(self, e_out):
+        """choice a sample from distribution space"""
         mu = self.fc_mu(e_out)
         var = self.fc_var(e_out)
         z = self.compute_Z(mu, var)
         return (z, mu, var)
 
     def forward(self, inputs):
-        out = self.encoder(inputs)
+        out = super().forward(inputs)
         z, mu, var = self.sample(out)
-        return (self.decoder(z), mu, var)
+        return (z, mu, var)
 
 class VNet2(nn.Module):
     """Volumetric Network class. that is a Variation AutoEncoder
@@ -223,7 +224,7 @@ class VNet2(nn.Module):
     def __init__(
         self,
         decoder=SirenFiLM(hidden_size=256, hidden_layers=5),
-        encoder=Resnet34ResFC(c_dim=2560),
+        encoder=VAE_Resnet34ResFC(c_dim=2560),
         device="cuda",
     ):
         super(VNet2, self).__init__()
@@ -232,8 +233,8 @@ class VNet2(nn.Module):
         self.encoder = encoder
         self._device = device
 
-    def forward(self):
-        pass
+    def forward(self, x):
+        return self.decoder(self.encoder(x))
 
     @staticmethod
     def loss_function(pred, act, mu, var, kl_weight = 0.01):
